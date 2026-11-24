@@ -1,0 +1,21 @@
+import { getSelfie } from "@/lib/game";
+import { handleError, json } from "@/lib/http";
+import { loadRoom } from "@/lib/store";
+import { GameError } from "@/lib/types";
+
+export const dynamic = "force-dynamic";
+
+type Ctx = { params: Promise<{ code: string; playerId: string }> };
+
+export async function GET(_request: Request, ctx: Ctx) {
+  try {
+    const { code, playerId } = await ctx.params;
+    const room = await loadRoom(code);
+    if (!room) throw new GameError("Room not found", 404);
+    const selfieDataUrl = getSelfie(room, playerId);
+    if (!selfieDataUrl) throw new GameError("Selfie not found", 404);
+    return json({ playerId, selfieDataUrl });
+  } catch (error) {
+    return handleError(error);
+  }
+}
