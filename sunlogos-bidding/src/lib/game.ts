@@ -141,7 +141,9 @@ export function joinPlayer(room: Room, nickname: string, selfieDataUrl: string, 
   if (activePlayers(next).some((p) => p.nickname.toLowerCase() === nick.toLowerCase())) {
     throw new GameError("That nickname is taken in this room");
   }
-  if (activePlayers(next).length >= MAX_PLAYERS) throw new GameError("Room is full");
+  if (activePlayers(next).length >= MAX_PLAYERS) {
+    throw new GameError(`This room is limited to ${MAX_PLAYERS} participants`);
+  }
   assertSelfie(selfieDataUrl);
   const player: Player = {
     id: id("p"),

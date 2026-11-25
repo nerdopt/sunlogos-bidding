@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 
-export function useSelfies(code: string, playerIds: string[]) {
+export function useSelfies(code: string, playerIds: string[], hostToken?: string | null) {
   const [map, setMap] = useState<Record<string, string>>({});
   const loaded = useRef(new Set<string>());
 
   useEffect(() => {
+    if (!hostToken) return;
     let cancelled = false;
     async function load() {
       for (const playerId of playerIds) {
@@ -15,6 +16,7 @@ export function useSelfies(code: string, playerIds: string[]) {
         try {
           const res = await fetch(`/api/rooms/${code.toUpperCase()}/selfie/${playerId}`, {
             cache: "no-store",
+            headers: { "x-host-token": hostToken! },
           });
           if (!res.ok) {
             loaded.current.delete(playerId);
@@ -33,7 +35,7 @@ export function useSelfies(code: string, playerIds: string[]) {
     return () => {
       cancelled = true;
     };
-  }, [code, playerIds.join("|")]);
+  }, [code, hostToken, playerIds.join("|")]);
 
   return map;
 }

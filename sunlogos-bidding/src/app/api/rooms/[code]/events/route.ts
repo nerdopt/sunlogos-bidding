@@ -1,5 +1,6 @@
 import { toClient } from "@/lib/game";
 import { handleError, header } from "@/lib/http";
+import { acquireLiveSlot } from "@/lib/rate";
 import { loadAndTick } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -8,13 +9,22 @@ export const runtime = "nodejs";
 type Ctx = { params: Promise<{ code: string }> };
 
 export async function GET(request: Request, ctx: Ctx) {
+  let release: (() => void) | undefined;
+  let handedOff = false;
   try {
     const { code } = await ctx.params;
     const hostToken = header(request, "x-host-token");
     const playerToken = header(request, "x-player-token");
+    release = acquireLiveSlot(code);
     const encoder = new TextEncoder();
     let last = "";
     let closed = false;
+    let released = false;
+    const done = () => {
+      if (released) return;
+      released = true;
+      release?.();
+    };
 
     const stream = new ReadableStream({
       start(controller) {
@@ -40,6 +50,7 @@ export async function GET(request: Request, ctx: Ctx) {
         const timeout = setTimeout(() => {
           closed = true;
           clearInterval(interval);
+          done();
           try {
             controller.close();
           } catch {
@@ -50,6 +61,7 @@ export async function GET(request: Request, ctx: Ctx) {
           closed = true;
           clearInterval(interval);
           clearTimeout(timeout);
+          done();
           try {
             controller.close();
           } catch {
@@ -59,6 +71,7 @@ export async function GET(request: Request, ctx: Ctx) {
       },
     });
 
+    handedOff = true;
     return new Response(stream, {
       headers: {
         "content-type": "text/event-stream; charset=utf-8",
@@ -67,6 +80,7 @@ export async function GET(request: Request, ctx: Ctx) {
       },
     });
   } catch (error) {
+    if (!handedOff) release?.();
     return handleError(error);
   }
 }

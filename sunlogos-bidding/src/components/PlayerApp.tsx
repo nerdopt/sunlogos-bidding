@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Atmosphere, Face, SunMark } from "@/components/Atmosphere";
 import { Countdown } from "@/components/Countdown";
 import { SelfieCapture } from "@/components/SelfieCapture";
 import { useLiveRoom } from "@/hooks/useLiveRoom";
-import { useSelfies } from "@/hooks/useSelfies";
 import { joinRoom, money, phaseLabel, readPlayerToken, sendBid } from "@/lib/client";
 import type { ClientRoom } from "@/lib/types";
 
@@ -26,15 +25,6 @@ export function PlayerApp({ code }: { code: string }) {
   }, [upper]);
 
   const { room, error, setRoom } = useLiveRoom(upper, { playerToken });
-  const highIds = useMemo(() => {
-    if (!room) return [];
-    const ids: string[] = [];
-    if (room.currentHigh) ids.push(room.currentHigh.playerId);
-    for (const leader of room.tiedLeaders) ids.push(leader.playerId);
-    if (room.lastAward?.playerId) ids.push(room.lastAward.playerId);
-    return Array.from(new Set(ids));
-  }, [room]);
-  const selfies = useSelfies(upper, highIds);
 
   useEffect(() => {
     if (!room?.you) return;
@@ -100,7 +90,7 @@ export function PlayerApp({ code }: { code: string }) {
     return (
       <Shell>
         <SunMark className="mx-auto h-14 w-14" />
-        <p className="mt-3 text-center text-[11px] uppercase tracking-[0.4em] text-gold">Sunlogos · {upper}</p>
+        <p className="mt-3 text-center text-[11px] uppercase tracking-[0.4em] text-gold">Sunlogos</p>
         <h1 className="mt-2 text-center text-4xl">Take your seat</h1>
         <form onSubmit={(e) => void onJoin(e)} className="mt-6 space-y-4">
           <label className="block">
@@ -131,7 +121,7 @@ export function PlayerApp({ code }: { code: string }) {
     <Shell>
       <header className="flex items-center justify-between">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.35em] text-gold">Sunlogos · {upper}</p>
+          <p className="text-[11px] uppercase tracking-[0.35em] text-gold">Sunlogos</p>
           <p className="font-display text-2xl">{you.nickname}</p>
         </div>
         <button type="button" onClick={() => setStorageOpen(true)} className="text-right">
@@ -165,7 +155,7 @@ export function PlayerApp({ code }: { code: string }) {
 
       {room.phase === "open" && room.currentHigh && (
         <div className="mt-6 flex flex-col items-center gap-3">
-          <Face src={selfies[room.currentHigh.playerId]} name={room.currentHigh.nickname} size="lg" />
+          <Face name={room.currentHigh.nickname} size="lg" />
           <p>
             {you.youAreHigh ? "You lead" : room.currentHigh.nickname} at{" "}
             <span className="text-gold">{money(room.currentHigh.amount)}</span>
@@ -183,7 +173,7 @@ export function PlayerApp({ code }: { code: string }) {
         <div className="mt-8 text-center">
           {room.lastAward.sold ? (
             <>
-              <Face src={selfies[room.lastAward.playerId]} name={room.lastAward.nickname} size="lg" />
+              <Face name={room.lastAward.nickname} size="lg" />
               <p className="mt-3 font-display text-3xl">
                 {room.lastAward.playerId === you.playerId ? "You won" : room.lastAward.nickname} · {money(room.lastAward.amount)}
               </p>

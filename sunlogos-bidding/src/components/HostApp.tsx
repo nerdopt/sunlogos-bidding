@@ -21,7 +21,6 @@ export function HostApp({ code }: { code: string }) {
   const upper = code.toUpperCase();
   const [hostToken, setHostToken] = useState<string | null>(null);
   const [deskOpen, setDeskOpen] = useState(true);
-  const [joinUrl, setJoinUrl] = useState("");
   const [qr, setQr] = useState("");
   const [lotName, setLotName] = useState("");
   const [lotNotes, setLotNotes] = useState("");
@@ -32,7 +31,6 @@ export function HostApp({ code }: { code: string }) {
   useEffect(() => {
     setHostToken(readHostToken(upper));
     const url = `${window.location.origin}/r/${upper}`;
-    setJoinUrl(url);
     void import("qrcode").then((mod) =>
       mod.default.toDataURL(url, {
         width: 520,
@@ -51,7 +49,7 @@ export function HostApp({ code }: { code: string }) {
     if (room.lastAward?.playerId) ids.push(room.lastAward.playerId);
     return Array.from(new Set(ids));
   }, [room]);
-  const selfies = useSelfies(upper, selfieIds);
+  const selfies = useSelfies(upper, selfieIds, hostToken);
 
   async function act(action: Record<string, unknown>) {
     if (!hostToken) return;
@@ -75,7 +73,7 @@ export function HostApp({ code }: { code: string }) {
           <SunMark className="mx-auto h-20 w-20" />
           <h1 className="mt-6 text-5xl">This desk is locked</h1>
           <p className="mt-4 text-cream/70">
-            Host controls live on the computer that created room {upper}. Create a new evening from the
+            Host controls live on the computer that opened this screen. Create a new evening from the
             home page.
           </p>
           <a href="/" className="btn-gold mt-8">
@@ -114,7 +112,7 @@ export function HostApp({ code }: { code: string }) {
               <SunMark className="h-12 w-12" />
               <div>
                 <p className="text-[11px] uppercase tracking-[0.42em] text-gold">Sunlogos</p>
-                <p className="font-display text-3xl leading-none md:text-4xl">Evening {upper}</p>
+                <p className="font-display text-3xl leading-none md:text-4xl">Evening</p>
               </div>
             </div>
             <div className="text-right">
@@ -126,7 +124,7 @@ export function HostApp({ code }: { code: string }) {
           </header>
 
           <div className="flex flex-1 flex-col justify-center py-6">
-            {room.phase === "lobby" && <LobbyStage room={room} qr={qr} joinUrl={joinUrl} selfies={selfies} />}
+            {room.phase === "lobby" && <LobbyStage room={room} qr={qr} selfies={selfies} />}
             {room.phase === "sealed" && <SealedStage room={room} />}
             {room.phase === "tiebreak" && <TieStage room={room} selfies={selfies} />}
             {room.phase === "open" && <OpenStage room={room} selfies={selfies} />}
@@ -165,12 +163,10 @@ export function HostApp({ code }: { code: string }) {
 function LobbyStage({
   room,
   qr,
-  joinUrl,
   selfies,
 }: {
   room: ClientRoom;
   qr: string;
-  joinUrl: string;
   selfies: Record<string, string>;
 }) {
   return (
@@ -180,12 +176,12 @@ function LobbyStage({
           // eslint-disable-next-line @next/next/no-img-element
           <img src={qr} alt="Join QR code" className="h-64 w-64 rounded-3xl shadow-glow md:h-80 md:w-80" />
         )}
-        <p className="mt-4 text-center font-display text-5xl tracking-[0.28em] text-gold">{room.code}</p>
-        <p className="mt-2 text-center text-sm text-cream/55">{joinUrl}</p>
+        <p className="mt-4 text-center text-sm uppercase tracking-[0.28em] text-gold">Scan to join</p>
+        <p className="mt-2 text-center text-sm text-cream/55">QR only · 40 players</p>
       </div>
       <div>
         <p className="text-[11px] uppercase tracking-[0.3em] text-cream/45">
-          {room.playerCount} in the room · starting {money(room.startingMoney)}
+          {room.playerCount} / 40 in the room · starting {money(room.startingMoney)}
         </p>
         <div className="mt-5 flex flex-wrap gap-5">
           {room.players.map((p) => (
@@ -290,7 +286,7 @@ function EndedStage({ room, selfies }: { room: ClientRoom; selfies: Record<strin
   return (
     <div>
       <p className="text-center text-[12px] uppercase tracking-[0.5em] text-gold">The books are closed</p>
-      <h2 className="mt-3 text-center text-6xl">Evening {room.code}</h2>
+      <h2 className="mt-3 text-center text-6xl">This evening</h2>
       <ul className="mx-auto mt-10 max-w-2xl space-y-4">
         {ranked.map((p) => (
           <li key={p.id} className="panel flex items-center gap-4">
