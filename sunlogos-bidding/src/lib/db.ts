@@ -2,7 +2,14 @@ import { mkdir, readdir, readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 import pg from "pg";
 
-const databaseUrl = process.env.DATABASE_URL?.trim() ?? "";
+const databaseUrl = postgresUrl(process.env.DATABASE_URL?.trim() ?? "");
+
+function postgresUrl(connectionString: string): string {
+  if (!/[?&]sslmode=(prefer|require|verify-ca)(?:&|$)/.test(connectionString)) return connectionString;
+  if (/[?&]uselibpqcompat=/.test(connectionString)) return connectionString;
+  const join = connectionString.includes("?") ? "&" : "?";
+  return `${connectionString}${join}uselibpqcompat=true`;
+}
 
 const g = globalThis as unknown as {
   __sunlogosPool?: pg.Pool;
