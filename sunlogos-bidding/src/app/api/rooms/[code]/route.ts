@@ -16,6 +16,7 @@ import { loadAndTick, mutateRoom } from "@/lib/store";
 import { GameError, type Room } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 type Ctx = { params: Promise<{ code: string }> };
 

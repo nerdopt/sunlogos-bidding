@@ -4,6 +4,7 @@ import { mutateRoom } from "@/lib/store";
 import { GameError } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 type Ctx = { params: Promise<{ code: string }> };
 

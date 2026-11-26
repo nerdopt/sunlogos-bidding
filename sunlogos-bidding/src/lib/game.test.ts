@@ -121,6 +121,25 @@ test("host can break a tie; first valid open raise wins the raise", () => {
   assert.throws(() => raiseBid(room, ids[0], 31, now + 20_700), /higher than 31/);
 });
 
+test("the third lot can be smile, and traditional chinese names round-trip as JSON", () => {
+  let room = createRoom(1_700_000_000_000);
+  room = addItem(room, "First light");
+  room = addItem(room, "Second bell");
+  room = addItem(room, "smile");
+  room = addItem(room, "龍紋玉珮", "清代 翠玉");
+  room = addItem(room, "smile\u0000");
+  assert.equal(room.items[2]?.name, "smile");
+  assert.equal(room.items[3]?.name, "龍紋玉珮");
+  assert.equal(room.items[3]?.notes, "清代 翠玉");
+  assert.equal(room.items[4]?.name, "smile");
+  const view = toClient(room, { hostToken: room.hostToken, now: 1_700_000_000_000 });
+  const parsed = JSON.parse(JSON.stringify(view)) as typeof view;
+  assert.equal(parsed.items[2]?.name, "smile");
+  assert.equal(parsed.items[3]?.name, "龍紋玉珮");
+  assert.equal(parsed.items[3]?.notes, "清代 翠玉");
+  assert.equal(JSON.stringify(view).charCodeAt(0), 123);
+});
+
 test("next lot starts a fresh sealed window; unsold if nobody bids", () => {
   const now = 9_000_000;
   let { room, ids } = roomWithPlayers(1, now);

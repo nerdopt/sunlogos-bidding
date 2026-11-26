@@ -55,7 +55,7 @@ export function useLiveRoom(
             const line = part.split("\n").find((row) => row.startsWith("data: "));
             if (!line) continue;
             try {
-              const data = JSON.parse(line.slice(6)) as ClientRoom;
+              const data = JSON.parse(line.slice(6).replace(/^\uFEFF/, "")) as ClientRoom;
               if (data?.code && !cancelled) {
                 setRoom(data);
                 setError(null);

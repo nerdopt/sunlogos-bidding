@@ -19,10 +19,42 @@ export function readPlayerToken(code: string): string | null {
 }
 
 export function authHeaders(opts: { hostToken?: string | null; playerToken?: string | null }): HeadersInit {
-  const headers: Record<string, string> = { "content-type": "application/json" };
+  const headers: Record<string, string> = {
+    accept: "application/json",
+    "content-type": "application/json",
+  };
   if (opts.hostToken) headers["x-host-token"] = opts.hostToken;
   if (opts.playerToken) headers["x-player-token"] = opts.playerToken;
   return headers;
+}
+
+/** Firefox's response.json() throws this when the body is HTML, a BOM, or empty. */
+export class UnreadableResponse extends Error {
+  constructor() {
+    super("The room sent an unreadable reply.");
+    this.name = "UnreadableResponse";
+  }
+}
+
+export function unreadableResponse(error: unknown): boolean {
+  return error instanceof UnreadableResponse;
+}
+
+export async function readJson(res: Response): Promise<Record<string, unknown>> {
+  const text = (await res.text()).replace(/^\uFEFF/, "").trim();
+  if (!text) throw new UnreadableResponse();
+  try {
+    const data = JSON.parse(text) as unknown;
+    if (!data || typeof data !== "object" || Array.isArray(data)) throw new UnreadableResponse();
+    return data as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof UnreadableResponse) throw error;
+    throw new UnreadableResponse();
+  }
+}
+
+function errorMessage(data: Record<string, unknown>, fallback: string): string {
+  return typeof data.error === "string" && data.error ? data.error : fallback;
 }
 
 export async function fetchRoom(
@@ -33,8 +65,9 @@ export async function fetchRoom(
     headers: authHeaders(opts),
     cache: "no-store",
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Room not found");
+  const data = await readJson(res);
+  if (!res.ok) throw new Error(errorMessage(data, "Room not found"));
+  if (typeof data.code !== "string" || typeof data.phase !== "string") throw new UnreadableResponse();
   return data as ClientRoom;
 }
 
@@ -47,21 +80,28 @@ export async function hostAction(
     method: "PATCH",
     headers: authHeaders({ hostToken }),
     body: JSON.stringify(action),
+    cache: "no-store",
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Action failed");
+  const data = await readJson(res);
+  if (!res.ok) throw new Error(errorMessage(data, "Action failed"));
+  if (typeof data.code !== "string" || typeof data.phase !== "string") throw new UnreadableResponse();
   return data as ClientRoom;
 }
 
 export async function joinRoom(code: string, nickname: string, selfieDataUrl: string) {
   const res = await fetch(`/api/rooms/${code.toUpperCase()}/join`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { accept: "application/json", "content-type": "application/json" },
     body: JSON.stringify({ nickname, selfieDataUrl }),
+    cache: "no-store",
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Could not join");
-  localStorage.setItem(playerKey(code), data.playerToken);
+  const data = await readJson(res);
+  if (!res.ok) throw new Error(errorMessage(data, "Could not join"));
+  const playerToken = data.playerToken;
+  if (typeof playerToken !== "string" || !data.room || typeof data.room !== "object") {
+    throw new UnreadableResponse();
+  }
+  localStorage.setItem(playerKey(code), playerToken);
   return data as { playerId: string; playerToken: string; room: ClientRoom };
 }
 
@@ -74,9 +114,11 @@ export async function sendBid(
     method: "POST",
     headers: authHeaders({ playerToken }),
     body: JSON.stringify(body),
+    cache: "no-store",
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Bid failed");
+  const data = await readJson(res);
+  if (!res.ok) throw new Error(errorMessage(data, "Bid failed"));
+  if (typeof data.code !== "string" || typeof data.phase !== "string") throw new UnreadableResponse();
   return data as ClientRoom;
 }
 

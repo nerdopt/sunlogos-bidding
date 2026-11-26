@@ -5,7 +5,8 @@ import { Atmosphere, Face, SunMark } from "@/components/Atmosphere";
 import { Countdown } from "@/components/Countdown";
 import { useLiveRoom } from "@/hooks/useLiveRoom";
 import { useSelfies } from "@/hooks/useSelfies";
-import { hostAction, money, phaseLabel, readHostToken } from "@/lib/client";
+import { fetchRoom, hostAction, money, phaseLabel, readHostToken, unreadableResponse } from "@/lib/client";
+import { textLang } from "@/lib/text";
 import type { ClientRoom } from "@/lib/types";
 
 const SUGGESTED = [
@@ -51,15 +52,32 @@ export function HostApp({ code }: { code: string }) {
   }, [room]);
   const selfies = useSelfies(upper, selfieIds, hostToken);
 
-  async function act(action: Record<string, unknown>) {
-    if (!hostToken) return;
+  async function act(action: Record<string, unknown>): Promise<boolean> {
+    if (!hostToken) return false;
+    const beforeLots = room?.items.length ?? 0;
     setBusy(action.type as string);
     setFlash(null);
     try {
       const next = await hostAction(upper, hostToken, action);
       setRoom(next);
+      return true;
     } catch (err) {
+      if (unreadableResponse(err)) {
+        try {
+          const fresh = await fetchRoom(upper, { hostToken });
+          setRoom(fresh);
+          if (action.type === "addItem" && fresh.items.length <= beforeLots) {
+            setFlash("Couldn't save that lot. Try again.");
+            return false;
+          }
+          return true;
+        } catch {
+          setFlash("Couldn't save that. Try again.");
+          return false;
+        }
+      }
       setFlash(err instanceof Error ? err.message : "Failed");
+      return false;
     } finally {
       setBusy(null);
     }
@@ -203,10 +221,14 @@ function SealedStage({ room }: { room: ClientRoom }) {
   return (
     <div className="text-center">
       <p className="text-[12px] uppercase tracking-[0.5em] text-gold">Lot {(room.currentItemIndex ?? 0) + 1}</p>
-      <h2 className="mx-auto mt-3 max-w-5xl text-balance text-6xl leading-none md:text-8xl">
+      <h2 className="mx-auto mt-3 max-w-5xl text-balance text-6xl leading-none md:text-8xl" lang={textLang(room.currentItem?.name)}>
         {room.currentItem?.name}
       </h2>
-      {room.currentItem?.notes && <p className="mt-4 text-lg text-cream/60">{room.currentItem.notes}</p>}
+      {room.currentItem?.notes && (
+        <p className="mt-4 text-lg text-cream/60" lang={textLang(room.currentItem.notes)}>
+          {room.currentItem.notes}
+        </p>
+      )}
       <div className="mt-10">
         <Countdown endsAt={room.sealedEndsAt} serverNow={room.serverNow} />
       </div>
@@ -221,7 +243,7 @@ function TieStage({ room, selfies }: { room: ClientRoom; selfies: Record<string,
   return (
     <div className="text-center">
       <p className="text-[12px] uppercase tracking-[0.5em] text-ember">Tied at {money(room.tiedLeaders[0]?.amount ?? 0)}</p>
-      <h2 className="mt-3 text-6xl md:text-8xl">{room.currentItem?.name}</h2>
+      <h2 className="mt-3 text-6xl md:text-8xl" lang={textLang(room.currentItem?.name)}>{room.currentItem?.name}</h2>
       <div className="mt-8">
         <Countdown endsAt={room.sealedEndsAt} serverNow={room.serverNow} />
       </div>
@@ -242,7 +264,9 @@ function OpenStage({ room, selfies }: { room: ClientRoom; selfies: Record<string
   const high = room.currentHigh;
   return (
     <div className="text-center">
-      <p className="text-[12px] uppercase tracking-[0.5em] text-gold">Open floor · {room.currentItem?.name}</p>
+      <p className="text-[12px] uppercase tracking-[0.5em] text-gold">
+        Open floor · <span lang={textLang(room.currentItem?.name)}>{room.currentItem?.name}</span>
+      </p>
       {high ? (
         <div className="mt-8 flex flex-col items-center gap-5">
           <Face src={selfies[high.playerId]} name={high.nickname} size="xl" />
@@ -263,7 +287,9 @@ function AwardStage({ room, selfies }: { room: ClientRoom; selfies: Record<strin
     return (
       <div className="text-center">
         <p className="text-[12px] uppercase tracking-[0.5em] text-cream/45">Unsold</p>
-        <h2 className="mt-4 text-7xl">{room.currentItem?.name ?? award?.itemName}</h2>
+        <h2 className="mt-4 text-7xl" lang={textLang(room.currentItem?.name ?? award?.itemName)}>
+          {room.currentItem?.name ?? award?.itemName}
+        </h2>
         <p className="mt-6 text-cream/55">No sealed bid was placed.</p>
       </div>
     );
@@ -271,7 +297,7 @@ function AwardStage({ room, selfies }: { room: ClientRoom; selfies: Record<strin
   return (
     <div className="text-center">
       <p className="text-[12px] uppercase tracking-[0.5em] text-gold">Sold</p>
-      <h2 className="mt-3 text-5xl md:text-7xl">{award.itemName}</h2>
+      <h2 className="mt-3 text-5xl md:text-7xl" lang={textLang(award.itemName)}>{award.itemName}</h2>
       <div className="mt-8 flex flex-col items-center gap-4">
         <Face src={selfies[award.playerId]} name={award.nickname} size="xl" />
         <p className="font-display text-5xl">{award.nickname}</p>
@@ -294,7 +320,14 @@ function EndedStage({ room, selfies }: { room: ClientRoom; selfies: Record<strin
             <div className="flex-1">
               <p className="font-display text-2xl">{p.nickname}</p>
               <p className="text-sm text-cream/50">
-                {p.storage.length ? p.storage.map((s) => `${s.itemName} (${money(s.amount)})`).join(" · ") : "No lots"}
+                {p.storage.length
+                  ? p.storage.map((s, storageIndex) => (
+                      <span key={s.itemId}>
+                        {storageIndex > 0 ? " · " : ""}
+                        <span lang={textLang(s.itemName)}>{s.itemName}</span> ({money(s.amount)})
+                      </span>
+                    ))
+                  : "No lots"}
               </p>
             </div>
             <p className="font-display text-2xl text-gold">{money(p.balance)}</p>
@@ -324,7 +357,7 @@ function LobbyDesk({
   onLotName: (v: string) => void;
   onLotNotes: (v: string) => void;
   onMoney: (v: string) => void;
-  onAct: (action: Record<string, unknown>) => Promise<void>;
+  onAct: (action: Record<string, unknown>) => Promise<boolean>;
 }) {
   return (
     <div className="space-y-5 text-sm">
@@ -349,7 +382,7 @@ function LobbyDesk({
           {room.items.map((item, index) => (
             <li key={item.id} className="flex items-center gap-2 rounded-2xl bg-white/5 px-3 py-2">
               <span className="w-5 text-cream/40">{index + 1}</span>
-              <span className="flex-1">{item.name}</span>
+              <span className="flex-1" lang={textLang(item.name)}>{item.name}</span>
               <button
                 type="button"
                 className="text-cream/40 hover:text-gold"
@@ -384,27 +417,37 @@ function LobbyDesk({
             </li>
           ))}
         </ul>
-        <div className="mt-3 space-y-2">
-          <input className="field" placeholder="Lot name" value={lotName} onChange={(e) => onLotName(e.target.value)} />
+        <form
+          className="mt-3 space-y-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!lotName.trim() || busy !== null) return;
+            void onAct({ type: "addItem", name: lotName, notes: lotNotes }).then((ok) => {
+              if (ok) {
+                onLotName("");
+                onLotNotes("");
+              }
+            });
+          }}
+        >
           <input
             className="field"
+            lang="zh-Hant"
+            placeholder="Lot name"
+            value={lotName}
+            onChange={(e) => onLotName(e.target.value)}
+          />
+          <input
+            className="field"
+            lang="zh-Hant"
             placeholder="Notes (optional)"
             value={lotNotes}
             onChange={(e) => onLotNotes(e.target.value)}
           />
-          <button
-            type="button"
-            className="btn-ghost w-full"
-            disabled={!lotName.trim() || busy !== null}
-            onClick={async () => {
-              await onAct({ type: "addItem", name: lotName, notes: lotNotes });
-              onLotName("");
-              onLotNotes("");
-            }}
-          >
+          <button type="submit" className="btn-ghost w-full" disabled={!lotName.trim() || busy !== null}>
             Add lot
           </button>
-        </div>
+        </form>
         <div className="mt-2 flex flex-wrap gap-1">
           {SUGGESTED.map((name) => (
             <button
@@ -454,7 +497,7 @@ function PlayDesk({
 }: {
   room: ClientRoom;
   busy: string | null;
-  onAct: (action: Record<string, unknown>) => Promise<void>;
+  onAct: (action: Record<string, unknown>) => Promise<boolean>;
   selfies: Record<string, string>;
 }) {
   return (

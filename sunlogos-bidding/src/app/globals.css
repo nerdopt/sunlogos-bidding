@@ -14,7 +14,7 @@ body {
 }
 
 body {
-  font-family: var(--font-sans), system-ui, sans-serif;
+  font-family: var(--font-sans), "PingFang TC", "Noto Sans TC", "Noto Sans CJK TC", "Microsoft JhengHei", system-ui, sans-serif;
 }
 
 .sunburst {
@@ -57,7 +57,7 @@ body {
 h1,
 h2,
 .display {
-  font-family: var(--font-display), serif;
+  font-family: var(--font-display), "PingFang TC", "Noto Sans TC", "Noto Serif TC", "PMingLiU", "Microsoft JhengHei", serif;
 }
 
 ::selection {

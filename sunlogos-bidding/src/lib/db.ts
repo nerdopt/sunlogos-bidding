@@ -21,7 +21,15 @@ export async function sql<T = Record<string, unknown>>(
   params: unknown[] = [],
 ): Promise<T[]> {
   if (databaseUrl !== "") {
-    g.__sunlogosPool ??= new pg.Pool({ connectionString: databaseUrl, max: 5 });
+    if (!g.__sunlogosPool) {
+      const pool = new pg.Pool({ connectionString: databaseUrl, max: 5 });
+      // An idle client error with no listener crashes the process. The host then
+      // sees an HTML error page, and Firefox reports that as a JSON.parse failure.
+      pool.on("error", (error: unknown) => {
+        console.error("postgres pool error", error);
+      });
+      g.__sunlogosPool = pool;
+    }
     return (await g.__sunlogosPool.query(text, params)).rows as T[];
   }
   g.__sunlogosPglite ??= startLocal().catch((error: unknown) => {

@@ -3,7 +3,10 @@ import { GameError } from "./types";
 export function json(data: unknown, status = 200): Response {
   return Response.json(data, {
     status,
-    headers: { "cache-control": "private, no-store" },
+    headers: {
+      "cache-control": "private, no-store",
+      "content-type": "application/json; charset=utf-8",
+    },
   });
 }
 

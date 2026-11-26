@@ -21,6 +21,11 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
+/** Keep lot text as NFC Unicode and drop NUL, which Postgres jsonb rejects. */
+function cleanText(value: string): string {
+  return value.replace(/\u0000/g, "").trim().normalize("NFC");
+}
+
 function activePlayers(room: Room): Player[] {
   return room.players.filter((p) => !p.kicked);
 }
@@ -88,10 +93,11 @@ export function addItem(room: Room, name: string, notes = ""): Room {
   const next = clone(room);
   if (next.sessionStarted) throw new GameError("Lots are locked after the evening begins");
   if (next.items.length >= MAX_ITEMS) throw new GameError("Too many lots");
-  const trimmed = name.trim();
+  const trimmed = cleanText(name);
   if (trimmed.length < 1 || trimmed.length > 80) throw new GameError("Give the lot a name (1–80 characters)");
-  if (notes.length > 240) throw new GameError("Notes are too long");
-  next.items.push({ id: id("lot"), name: trimmed, notes: notes.trim() });
+  const cleanNotes = cleanText(notes);
+  if (cleanNotes.length > 240) throw new GameError("Notes are too long");
+  next.items.push({ id: id("lot"), name: trimmed, notes: cleanNotes });
   return next;
 }
 

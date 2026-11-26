@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { readJson } from "@/lib/client";
 
 export function useSelfies(code: string, playerIds: string[], hostToken?: string | null) {
   const [map, setMap] = useState<Record<string, string>>({});
@@ -16,15 +17,19 @@ export function useSelfies(code: string, playerIds: string[], hostToken?: string
         try {
           const res = await fetch(`/api/rooms/${code.toUpperCase()}/selfie/${playerId}`, {
             cache: "no-store",
-            headers: { "x-host-token": hostToken! },
+            headers: { accept: "application/json", "x-host-token": hostToken! },
           });
           if (!res.ok) {
             loaded.current.delete(playerId);
             continue;
           }
-          const data = (await res.json()) as { selfieDataUrl: string };
+          const data = await readJson(res);
+          if (typeof data.selfieDataUrl !== "string") {
+            loaded.current.delete(playerId);
+            continue;
+          }
           if (!cancelled) {
-            setMap((prev) => ({ ...prev, [playerId]: data.selfieDataUrl }));
+            setMap((prev) => ({ ...prev, [playerId]: data.selfieDataUrl as string }));
           }
         } catch {
           loaded.current.delete(playerId);

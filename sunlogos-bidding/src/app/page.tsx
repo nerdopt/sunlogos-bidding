@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Atmosphere, SunMark } from "@/components/Atmosphere";
-import { hostKey } from "@/lib/client";
+import { hostKey, readJson } from "@/lib/client";
 
 export default function HomePage() {
   const router = useRouter();
@@ -14,9 +14,16 @@ export default function HomePage() {
     setCreating(true);
     setError(null);
     try {
-      const res = await fetch("/api/rooms", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not open a room");
+      const res = await fetch("/api/rooms", {
+        method: "POST",
+        headers: { accept: "application/json" },
+        cache: "no-store",
+      });
+      const data = await readJson(res);
+      if (!res.ok) throw new Error(typeof data.error === "string" ? data.error : "Could not open a room");
+      if (typeof data.code !== "string" || typeof data.hostToken !== "string") {
+        throw new Error("Could not open a room");
+      }
       localStorage.setItem(hostKey(data.code), data.hostToken);
       router.push(`/host/${data.code}`);
     } catch (err) {

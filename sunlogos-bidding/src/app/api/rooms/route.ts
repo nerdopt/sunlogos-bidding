@@ -3,6 +3,7 @@ import { clientAddress, rateLimit } from "@/lib/rate";
 import { insertRoom, pruneOldRooms } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {

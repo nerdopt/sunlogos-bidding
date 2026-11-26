@@ -6,6 +6,7 @@ import { Countdown } from "@/components/Countdown";
 import { SelfieCapture } from "@/components/SelfieCapture";
 import { useLiveRoom } from "@/hooks/useLiveRoom";
 import { joinRoom, money, phaseLabel, readPlayerToken, sendBid } from "@/lib/client";
+import { textLang } from "@/lib/text";
 import type { ClientRoom } from "@/lib/types";
 
 export function PlayerApp({ code }: { code: string }) {
@@ -133,7 +134,9 @@ export function PlayerApp({ code }: { code: string }) {
       <p className="mt-4 text-center text-[11px] uppercase tracking-[0.3em] text-cream/45">{phaseLabel(room.phase)}</p>
 
       {room.currentItem && room.phase !== "lobby" && room.phase !== "ended" && (
-        <h2 className="mt-2 text-center text-4xl leading-none">{room.currentItem.name}</h2>
+        <h2 className="mt-2 text-center text-4xl leading-none" lang={textLang(room.currentItem.name)}>
+          {room.currentItem.name}
+        </h2>
       )}
 
       {(room.phase === "sealed" || room.phase === "tiebreak") && (
@@ -279,7 +282,7 @@ export function PlayerApp({ code }: { code: string }) {
               {you.storage.length === 0 && <li className="text-cream/50">Nothing won yet.</li>}
               {you.storage.map((row) => (
                 <li key={row.itemId} className="flex justify-between border-b border-cream/10 pb-2">
-                  <span>{row.itemName}</span>
+                  <span lang={textLang(row.itemName)}>{row.itemName}</span>
                   <span className="text-gold">{money(row.amount)}</span>
                 </li>
               ))}
