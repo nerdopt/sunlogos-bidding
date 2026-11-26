@@ -5,7 +5,7 @@ import { Atmosphere, Face, SunMark } from "@/components/Atmosphere";
 import { Countdown } from "@/components/Countdown";
 import { SelfieCapture } from "@/components/SelfieCapture";
 import { useLiveRoom } from "@/hooks/useLiveRoom";
-import { joinRoom, money, phaseLabel, readPlayerToken, sendBid } from "@/lib/client";
+import { joinRoom, money, phaseLabel, readJson, readPlayerToken, replacePhoto, sendBid } from "@/lib/client";
 import { textLang } from "@/lib/text";
 import type { ClientRoom } from "@/lib/types";
 
@@ -145,11 +145,19 @@ export function PlayerApp({ code }: { code: string }) {
         </div>
       )}
 
+      {room.phase === "lobby" && !room.sessionStarted && playerToken && (
+        <PhotoReplace code={upper} playerToken={playerToken} onRoom={setRoom} />
+      )}
+
       {room.phase === "lobby" && (
         <p className="mt-8 text-center font-display text-3xl text-cream/70">
           Wait for the host to open the floor.
           <span className="mt-3 block font-sans text-base tracking-normal text-gold">{money(you.balance)} when it begins.</span>
         </p>
+      )}
+
+      {room.phase === "sealed" && !room.sealedEndsAt && (
+        <p className="mt-8 text-center font-display text-3xl text-cream/70">Waiting for the countdown.</p>
       )}
 
       {room.phase === "ended" && (
@@ -168,7 +176,9 @@ export function PlayerApp({ code }: { code: string }) {
 
       {room.phase === "tiebreak" && (
         <div className="mt-4 text-center text-cream/70">
-          {you.youAreTied ? "You are tied — bid higher than " + money(room.tiedLeaders[0]?.amount ?? 0) : "Waiting on tied leaders."}
+          {you.youAreTied
+            ? `You are tied — bid higher than ${money(room.tiedLeaders[0]?.amount ?? 0)}. If nobody does, the earliest bid takes it.`
+            : "Waiting on tied leaders. If nobody bids higher, the earliest bid takes it."}
         </div>
       )}
 
@@ -291,6 +301,91 @@ export function PlayerApp({ code }: { code: string }) {
         </div>
       )}
     </Shell>
+  );
+}
+
+function PhotoReplace({
+  code,
+  playerToken,
+  onRoom,
+}: {
+  code: string;
+  playerToken: string;
+  onRoom: (room: ClientRoom) => void;
+}) {
+  const [current, setCurrent] = useState("");
+  const [draft, setDraft] = useState("");
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/rooms/${code}/photo`, {
+          cache: "no-store",
+          headers: { accept: "application/json", "x-player-token": playerToken },
+        });
+        const data = await readJson(res);
+        if (!cancelled && res.ok && typeof data.selfieDataUrl === "string") setCurrent(data.selfieDataUrl);
+      } catch {
+        /* the player can still take a new photo */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [code, playerToken]);
+
+  async function save(url: string) {
+    if (!url) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await replacePhoto(code, playerToken, url);
+      onRoom(next);
+      setCurrent(url);
+      setDraft("");
+      setOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not replace the photo");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-6">
+      {current && !open && (
+        <div className="flex flex-col items-center gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={current} alt="" className="h-24 w-24 rounded-full border-2 border-gold object-cover" />
+          <button type="button" className="btn-ghost" disabled={busy} onClick={() => setOpen(true)}>
+            Replace photo
+          </button>
+        </div>
+      )}
+      {(open || !current) && (
+        <div className="space-y-3">
+          <SelfieCapture
+            label="Replace photo"
+            value={draft}
+            onChange={(url) => {
+              setDraft(url);
+              if (url) void save(url);
+            }}
+          />
+          {current && (
+            <button type="button" className="btn-ghost w-full" disabled={busy} onClick={() => setOpen(false)}>
+              Keep this photo
+            </button>
+          )}
+        </div>
+      )}
+      {error && <p className="mt-2 text-center text-sm text-ember">{error}</p>}
+      <p className="mt-3 text-center text-xs text-cream/45">You can change your photo until the host starts.</p>
+    </div>
   );
 }
 

@@ -34,11 +34,12 @@ export async function GET(request: Request, ctx: Ctx) {
             const room = await loadAndTick(code);
             const view = toClient(room, { hostToken, playerToken });
             const payload = JSON.stringify(view);
+            const flush = " ".repeat(2048);
             if (payload !== last) {
               last = payload;
-              controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+              controller.enqueue(encoder.encode(`data: ${payload}\n: ${flush}\n\n`));
             } else {
-              controller.enqueue(encoder.encode(`: ping\n\n`));
+              controller.enqueue(encoder.encode(`: ping ${flush}\n\n`));
             }
           } catch (error) {
             const message = error instanceof Error ? error.message : "error";
@@ -46,7 +47,7 @@ export async function GET(request: Request, ctx: Ctx) {
           }
         };
         void send();
-        const interval = setInterval(() => void send(), 400);
+        const interval = setInterval(() => void send(), 250);
         const timeout = setTimeout(() => {
           closed = true;
           clearInterval(interval);
@@ -77,6 +78,7 @@ export async function GET(request: Request, ctx: Ctx) {
         "content-type": "text/event-stream; charset=utf-8",
         "cache-control": "no-cache, no-transform",
         connection: "keep-alive",
+        "x-accel-buffering": "no",
       },
     });
   } catch (error) {

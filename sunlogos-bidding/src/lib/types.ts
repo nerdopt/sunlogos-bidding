@@ -17,6 +17,7 @@ export type Player = {
   token: string;
   nickname: string;
   selfieDataUrl: string;
+  photoVersion: number;
   balance: number;
   storage: WonItem[];
   kicked: boolean;
@@ -25,6 +26,8 @@ export type Player = {
 export type SealedEntry = {
   amount: number;
   pass: boolean;
+  /** When this bid was submitted. Missing on rooms saved before tie order was kept. */
+  at?: number;
 };
 
 export type HighBid = {
@@ -75,6 +78,7 @@ export type ClientPlayer = {
   balance: number;
   storage: WonItem[];
   kicked: boolean;
+  photoVersion: number;
 };
 
 export type ClientYou = {
@@ -113,6 +117,7 @@ export type ClientRoom = {
   remainingLots: number;
   you: ClientYou | null;
   isHost: boolean;
+  version: number;
 };
 
 export class GameError extends Error {

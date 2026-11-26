@@ -4,7 +4,6 @@ import {
   type ClientRoom,
   type HighBid,
   type Item,
-  type LastAward,
   type Player,
   type Room,
   type SealedEntry,
@@ -156,6 +155,7 @@ export function joinPlayer(room: Room, nickname: string, selfieDataUrl: string, 
     token: token(),
     nickname: nick,
     selfieDataUrl,
+    photoVersion: 1,
     balance: 0,
     storage: [],
     kicked: false,
@@ -178,14 +178,14 @@ export function kickPlayer(room: Room, playerId: string): Room {
   return next;
 }
 
-function beginSealed(room: Room, now: number, durationMs: number) {
+function beginSealed(room: Room) {
   room.phase = "sealed";
   room.sealedBids = {};
   room.tiedIds = [];
   room.tieFloor = 0;
   room.currentHigh = null;
   room.lastAward = null;
-  room.sealedEndsAt = now + durationMs;
+  room.sealedEndsAt = null;
 }
 
 export function startEvening(room: Room, now = Date.now()): Room {
@@ -198,7 +198,15 @@ export function startEvening(room: Room, now = Date.now()): Room {
     if (!player.kicked) player.balance = next.startingMoney;
   }
   next.currentItemIndex = 0;
-  beginSealed(next, now, next.sealedDurationMs);
+  beginSealed(next);
+  return next;
+}
+
+export function startCountdown(room: Room, now = Date.now()): Room {
+  const next = clone(tick(room, now));
+  if (next.phase !== "sealed") throw new GameError("Bring a lot up before starting the countdown");
+  if (next.sealedEndsAt !== null) throw new GameError("The countdown is already running");
+  next.sealedEndsAt = now + next.sealedDurationMs;
   return next;
 }
 
@@ -216,7 +224,7 @@ export function startNextLot(room: Room, now = Date.now()): Room {
   }
   next.currentItemIndex = nextIndex;
   resetRound(next);
-  beginSealed(next, now, next.sealedDurationMs);
+  beginSealed(next);
   return next;
 }
 
@@ -239,7 +247,8 @@ export function submitSealedBid(room: Room, playerId: string, amount: number, pa
   if (next.phase !== "sealed" && next.phase !== "tiebreak") {
     throw new GameError("Sealed bidding is not open");
   }
-  if (next.sealedEndsAt && now >= next.sealedEndsAt) {
+  if (next.sealedEndsAt === null) throw new GameError("Wait for the host to start the countdown");
+  if (now >= next.sealedEndsAt) {
     throw new GameError("That bidding window just closed");
   }
   const player = playerById(next, playerId);
@@ -248,12 +257,12 @@ export function submitSealedBid(room: Room, playerId: string, amount: number, pa
   }
   if (pass) {
     if (next.phase === "tiebreak") throw new GameError("Tied leaders must bid higher or wait for the host");
-    next.sealedBids[playerId] = { amount: 0, pass: true };
+    next.sealedBids[playerId] = { amount: 0, pass: true, at: now };
     return next;
   }
   const floor = next.phase === "tiebreak" ? next.tieFloor : 0;
   requireBidAmount(amount, player.balance, floor);
-  next.sealedBids[playerId] = { amount, pass: false };
+  next.sealedBids[playerId] = { amount, pass: false, at: now };
   return next;
 }
 
@@ -270,18 +279,28 @@ export function raiseBid(room: Room, playerId: string, amount: number, now = Dat
   return next;
 }
 
-function entriesForWindow(room: Room, ids: string[]): { playerId: string; entry: SealedEntry }[] {
+function entriesForWindow(room: Room, ids: string[]): { playerId: string; order: number; entry: SealedEntry }[] {
   return ids
-    .map((playerId) => ({ playerId, entry: room.sealedBids[playerId] }))
-    .filter((row): row is { playerId: string; entry: SealedEntry } => Boolean(row.entry));
+    .map((playerId, order) => ({ playerId, order, entry: room.sealedBids[playerId] }))
+    .filter((row): row is { playerId: string; order: number; entry: SealedEntry } => Boolean(row.entry));
 }
 
-function highestNonPass(rows: { playerId: string; entry: SealedEntry }[]): { amount: number; leaders: string[] } | null {
+function highestNonPass(
+  rows: { playerId: string; order: number; entry: SealedEntry }[],
+): { amount: number; leaders: string[] } | null {
   const live = rows.filter((row) => !row.entry.pass);
   if (live.length === 0) return null;
   let amount = 0;
   for (const row of live) amount = Math.max(amount, row.entry.amount);
-  const leaders = live.filter((row) => row.entry.amount === amount).map((row) => row.playerId);
+  const leaders = live
+    .filter((row) => row.entry.amount === amount)
+    .sort((a, b) => {
+      const ta = a.entry.at ?? a.order;
+      const tb = b.entry.at ?? b.order;
+      if (ta !== tb) return ta - tb;
+      return a.order - b.order;
+    })
+    .map((row) => row.playerId);
   return { amount, leaders };
 }
 
@@ -330,12 +349,38 @@ function resolveSealed(room: Room, now: number) {
   startTiebreak(room, result.leaders, result.amount, now);
 }
 
+function awardSold(room: Room, high: HighBid) {
+  const item = currentItem(room);
+  if (!item) throw new GameError("No lot is up");
+  const winner = playerById(room, high.playerId);
+  if (high.amount > winner.balance) throw new GameError("Winner cannot cover this bid");
+  winner.balance -= high.amount;
+  winner.storage.push({ itemId: item.id, itemName: item.name, amount: high.amount });
+  room.lastAward = {
+    playerId: winner.id,
+    nickname: winner.nickname,
+    itemId: item.id,
+    itemName: item.name,
+    amount: high.amount,
+    sold: true,
+  };
+  room.currentHigh = high;
+  room.phase = "awarded";
+  room.sealedEndsAt = null;
+  room.tiedIds = [];
+}
+
 function resolveTiebreak(room: Room, now: number) {
   const rows = entriesForWindow(room, room.tiedIds);
   const result = highestNonPass(rows);
   if (!result) {
-    // Nobody improved. Stay in tiebreak with an expired window so the host can break it.
-    room.sealedEndsAt = now;
+    const winnerId = room.tiedIds[0];
+    if (!winnerId) {
+      room.phase = "awarded";
+      room.sealedEndsAt = null;
+      return;
+    }
+    awardSold(room, { playerId: winnerId, amount: room.tieFloor });
     return;
   }
   if (result.leaders.length === 1) {
@@ -395,21 +440,18 @@ export function awardWinner(room: Room, now = Date.now()): Room {
     next.sealedEndsAt = null;
     return next;
   }
-  const winner = playerById(next, high.playerId);
-  if (high.amount > winner.balance) throw new GameError("Winner cannot cover this bid");
-  winner.balance -= high.amount;
-  winner.storage.push({ itemId: item.id, itemName: item.name, amount: high.amount });
-  const award: LastAward = {
-    playerId: winner.id,
-    nickname: winner.nickname,
-    itemId: item.id,
-    itemName: item.name,
-    amount: high.amount,
-    sold: true,
-  };
-  next.lastAward = award;
-  next.phase = "awarded";
-  next.sealedEndsAt = null;
+  awardSold(next, high);
+  return next;
+}
+
+export function replaceSelfie(room: Room, playerToken: string, selfieDataUrl: string): Room {
+  const next = clone(room);
+  if (next.sessionStarted) throw new GameError("Photos are locked once the evening starts");
+  const player = next.players.find((p) => p.token === playerToken && !p.kicked);
+  if (!player) throw new GameError("You are not in this room", 401);
+  assertSelfie(selfieDataUrl);
+  player.selfieDataUrl = selfieDataUrl;
+  player.photoVersion = (player.photoVersion ?? 1) + 1;
   return next;
 }
 
@@ -430,6 +472,7 @@ export function toClient(room: Room, opts: { hostToken?: string; playerToken?: s
     balance: live.sessionStarted ? p.balance : live.startingMoney,
     storage: isHost || youPlayer?.id === p.id ? p.storage : [],
     kicked: p.kicked,
+    photoVersion: p.photoVersion ?? 1,
   }));
 
   const submittedIds = Object.keys(live.sealedBids);
@@ -456,8 +499,12 @@ export function toClient(room: Room, opts: { hostToken?: string; playerToken?: s
   const minRaise = (live.currentHigh?.amount ?? 0) + 1;
   const canBid =
     Boolean(youPlayer) &&
-    ((live.phase === "sealed" && (!live.sealedEndsAt || now < live.sealedEndsAt)) ||
-      (live.phase === "tiebreak" && youPlayer !== undefined && live.tiedIds.includes(youPlayer.id) && (!live.sealedEndsAt || now < live.sealedEndsAt)));
+    ((live.phase === "sealed" && live.sealedEndsAt !== null && now < live.sealedEndsAt) ||
+      (live.phase === "tiebreak" &&
+        youPlayer !== undefined &&
+        live.tiedIds.includes(youPlayer.id) &&
+        live.sealedEndsAt !== null &&
+        now < live.sealedEndsAt));
   const canRaise =
     Boolean(youPlayer) && live.phase === "open" && live.eligibleIds.includes(youPlayer!.id);
 
@@ -480,6 +527,7 @@ export function toClient(room: Room, opts: { hostToken?: string; playerToken?: s
     sessionStarted: live.sessionStarted,
     remainingLots: Math.max(0, live.items.length - Math.max(0, live.currentItemIndex + (live.phase === "awarded" || live.phase === "ended" ? 1 : 0))),
     isHost,
+    version: live.version,
     you: youPlayer
       ? {
           playerId: youPlayer.id,

@@ -35,10 +35,31 @@ export async function insertRoom(now = Date.now()): Promise<Room> {
   throw new GameError("Could not create a room", 500);
 }
 
+const LIGHT_ROOM_SQL = `select code, host_token, version,
+  jsonb_set(
+    state,
+    '{players}',
+    coalesce(
+      (
+        select jsonb_agg(player.elem - 'selfieDataUrl' order by player.ord)
+        from jsonb_array_elements(state->'players') with ordinality as player(elem, ord)
+      ),
+      '[]'::jsonb
+    )
+  ) as state
+from rooms where code = $1`;
+
 export async function loadRoom(code: string): Promise<Room | null> {
   const rows = await sql<RoomRow>("select code, host_token, version, state from rooms where code = $1", [
     code.toUpperCase(),
   ]);
+  if (!rows[0]) return null;
+  return parseState(rows[0]);
+}
+
+/** Live reads skip selfie bytes so a poll does not wait on megabytes of photos. Never save this copy. */
+async function loadRoomLight(code: string): Promise<Room | null> {
+  const rows = await sql<RoomRow>(LIGHT_ROOM_SQL, [code.toUpperCase()]);
   if (!rows[0]) return null;
   return parseState(rows[0]);
 }
@@ -77,13 +98,10 @@ function playFingerprint(room: Room): string {
 
 export async function loadAndTick(code: string, now = Date.now()): Promise<Room> {
   const key = code.toUpperCase();
-  const current = await loadRoom(key);
+  const current = await loadRoomLight(key);
   if (!current) throw new GameError("Room not found", 404);
   const ticked = tick(current, now);
   if (playFingerprint(current) === playFingerprint(ticked)) return ticked;
-  ticked.version = current.version + 1;
-  const ok = await saveIfVersion(ticked, current.version);
-  if (ok) return ticked;
   return mutateRoom(key, (room) => room, now);
 }
 

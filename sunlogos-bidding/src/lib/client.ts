@@ -1,4 +1,7 @@
 import type { ClientRoom } from "./types";
+import { preferRoom } from "./live";
+
+export { preferRoom };
 
 export function hostKey(code: string) {
   return `sunlogos:host:${code.toUpperCase()}`;
@@ -67,8 +70,7 @@ export async function fetchRoom(
   });
   const data = await readJson(res);
   if (!res.ok) throw new Error(errorMessage(data, "Room not found"));
-  if (typeof data.code !== "string" || typeof data.phase !== "string") throw new UnreadableResponse();
-  return data as ClientRoom;
+  return asRoom(data);
 }
 
 export async function hostAction(
@@ -84,8 +86,7 @@ export async function hostAction(
   });
   const data = await readJson(res);
   if (!res.ok) throw new Error(errorMessage(data, "Action failed"));
-  if (typeof data.code !== "string" || typeof data.phase !== "string") throw new UnreadableResponse();
-  return data as ClientRoom;
+  return asRoom(data);
 }
 
 export async function joinRoom(code: string, nickname: string, selfieDataUrl: string) {
@@ -105,7 +106,22 @@ export async function joinRoom(code: string, nickname: string, selfieDataUrl: st
   return data as { playerId: string; playerToken: string; room: ClientRoom };
 }
 
-export async function sendBid(
+function asRoom(data: Record<string, unknown>): ClientRoom {
+  if (typeof data.code !== "string" || typeof data.phase !== "string" || typeof data.version !== "number") {
+    throw new UnreadableResponse();
+  }
+  return data as ClientRoom;
+}
+
+function bidLanded(room: ClientRoom, body: { amount?: number; pass?: boolean; raise?: boolean }): boolean {
+  const you = room.you;
+  if (!you) return false;
+  if (body.raise) return Boolean(you.youAreHigh && room.currentHigh?.amount === body.amount);
+  if (body.pass) return you.passed;
+  return you.submitted && !you.passed && you.yourBid === body.amount;
+}
+
+async function postBid(
   code: string,
   playerToken: string,
   body: { amount?: number; pass?: boolean; raise?: boolean },
@@ -118,8 +134,38 @@ export async function sendBid(
   });
   const data = await readJson(res);
   if (!res.ok) throw new Error(errorMessage(data, "Bid failed"));
-  if (typeof data.code !== "string" || typeof data.phase !== "string") throw new UnreadableResponse();
-  return data as ClientRoom;
+  return asRoom(data);
+}
+
+export async function sendBid(
+  code: string,
+  playerToken: string,
+  body: { amount?: number; pass?: boolean; raise?: boolean },
+): Promise<ClientRoom> {
+  try {
+    return await postBid(code, playerToken, body);
+  } catch (err) {
+    if (!unreadableResponse(err)) throw err;
+    try {
+      const fresh = await fetchRoom(code, { playerToken });
+      if (bidLanded(fresh, body)) return fresh;
+    } catch {
+      /* the first reply was unreadable; try the bid once more */
+    }
+    return await postBid(code, playerToken, body);
+  }
+}
+
+export async function replacePhoto(code: string, playerToken: string, selfieDataUrl: string): Promise<ClientRoom> {
+  const res = await fetch(`/api/rooms/${code.toUpperCase()}/photo`, {
+    method: "PATCH",
+    headers: authHeaders({ playerToken }),
+    body: JSON.stringify({ selfieDataUrl }),
+    cache: "no-store",
+  });
+  const data = await readJson(res);
+  if (!res.ok) throw new Error(errorMessage(data, "Could not replace the photo"));
+  return asRoom(data);
 }
 
 export function money(n: number): string {

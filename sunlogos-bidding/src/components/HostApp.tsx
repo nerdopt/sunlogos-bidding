@@ -42,15 +42,23 @@ export function HostApp({ code }: { code: string }) {
   }, [upper]);
 
   const { room, error, setRoom } = useLiveRoom(upper, { hostToken });
-  const selfieIds = useMemo(() => {
+  const selfieRefs = useMemo(() => {
     if (!room) return [];
+    const versionOf = new Map(room.players.map((p) => [p.id, p.photoVersion]));
     const ids = room.players.map((p) => p.id);
     for (const leader of room.tiedLeaders) ids.push(leader.playerId);
     if (room.currentHigh) ids.push(room.currentHigh.playerId);
     if (room.lastAward?.playerId) ids.push(room.lastAward.playerId);
-    return Array.from(new Set(ids));
+    const seen = new Set<string>();
+    const refs: { id: string; version: number }[] = [];
+    for (const id of ids) {
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      refs.push({ id, version: versionOf.get(id) ?? 0 });
+    }
+    return refs;
   }, [room]);
-  const selfies = useSelfies(upper, selfieIds, hostToken);
+  const selfies = useSelfies(upper, selfieRefs, hostToken);
 
   async function act(action: Record<string, unknown>): Promise<boolean> {
     if (!hostToken) return false;
@@ -230,10 +238,14 @@ function SealedStage({ room }: { room: ClientRoom }) {
         </p>
       )}
       <div className="mt-10">
-        <Countdown endsAt={room.sealedEndsAt} serverNow={room.serverNow} />
+        {room.sealedEndsAt ? (
+          <Countdown endsAt={room.sealedEndsAt} serverNow={room.serverNow} />
+        ) : (
+          <p className="font-display text-5xl text-cream/60 md:text-7xl">Ready</p>
+        )}
       </div>
       <p className="mt-4 text-cream/50">
-        Sealed · {room.submittedCount} of {room.playerCount} in
+        {room.sealedEndsAt ? `Sealed · ${room.submittedCount} of ${room.playerCount} in` : "Countdown has not started"}
       </p>
     </div>
   );
@@ -255,7 +267,7 @@ function TieStage({ room, selfies }: { room: ClientRoom; selfies: Record<string,
           </div>
         ))}
       </div>
-      <p className="mt-6 text-cream/55">Only these players bid higher. Host may break the tie.</p>
+      <p className="mt-6 text-cream/55">If nobody bids higher, the earliest bid takes the lot.</p>
     </div>
   );
 }
@@ -483,7 +495,7 @@ function LobbyDesk({
         disabled={busy !== null || room.items.length < 1 || room.playerCount < 1}
         onClick={() => void onAct({ type: "startEvening" })}
       >
-        Begin the evening
+        Start
       </button>
     </div>
   );
@@ -505,6 +517,16 @@ function PlayDesk({
       <p>
         Lot {(room.currentItemIndex ?? 0) + 1} of {room.items.length}
       </p>
+      {room.phase === "sealed" && !room.sealedEndsAt && (
+        <button
+          type="button"
+          className="btn-gold w-full py-3"
+          disabled={busy !== null}
+          onClick={() => void onAct({ type: "startCountdown" })}
+        >
+          Start Countdown
+        </button>
+      )}
       {room.phase === "tiebreak" && (
         <div className="space-y-2">
           <p className="text-cream/55">Break the tie</p>

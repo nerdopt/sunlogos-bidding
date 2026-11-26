@@ -6,9 +6,11 @@ import { compressSelfie } from "@/lib/selfie";
 export function SelfieCapture({
   value,
   onChange,
+  label = "Required selfie",
 }: {
   value: string;
   onChange: (dataUrl: string) => void;
+  label?: string;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -64,7 +66,7 @@ export function SelfieCapture({
 
   return (
     <div className="space-y-3">
-      <p className="text-xs uppercase tracking-[0.22em] text-cream/50">Required selfie</p>
+      <p className="text-xs uppercase tracking-[0.22em] text-cream/50">{label}</p>
       {value ? (
         <div className="flex items-center gap-4">
           {/* eslint-disable-next-line @next/next/no-img-element */}

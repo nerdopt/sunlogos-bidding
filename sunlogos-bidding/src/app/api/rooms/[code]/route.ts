@@ -7,6 +7,7 @@ import {
   removeItem,
   reorderItems,
   setStartingMoney,
+  startCountdown,
   startEvening,
   startNextLot,
   toClient,
@@ -47,6 +48,7 @@ type HostAction =
   | { type: "reorderItems"; itemIds: string[] }
   | { type: "kickPlayer"; playerId: string }
   | { type: "startEvening" }
+  | { type: "startCountdown" }
   | { type: "startNextLot" }
   | { type: "awardWinner" }
   | { type: "breakTie"; playerId: string }
@@ -72,6 +74,8 @@ export async function PATCH(request: Request, ctx: Ctx) {
           return kickPlayer(current, action.playerId);
         case "startEvening":
           return startEvening(current);
+        case "startCountdown":
+          return startCountdown(current);
         case "startNextLot":
           return startNextLot(current);
         case "awardWinner":

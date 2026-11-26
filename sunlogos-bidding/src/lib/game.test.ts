@@ -9,6 +9,8 @@ import {
   MAX_PLAYERS,
   raiseBid,
   setStartingMoney,
+  replaceSelfie,
+  startCountdown,
   startEvening,
   startNextLot,
   submitSealedBid,
@@ -16,6 +18,7 @@ import {
   toClient,
 } from "./game";
 import { ROOM_CODE_LENGTH } from "./ids";
+import { preferRoom } from "./live";
 import type { Room } from "./types";
 
 function roomWithPlayers(n: number, now = 1_000_000): { room: Room; tokens: string[]; ids: string[] } {
@@ -51,7 +54,7 @@ test("new rooms use a long QR secret and stop at 40 participants", () => {
 test("sealed unique high reveals and opens; winner is deducted into storage", () => {
   const now = 5_000_000;
   let { room, ids } = roomWithPlayers(2, now);
-  room = startEvening(room, now);
+  room = startCountdown(startEvening(room, now), now);
   room = submitSealedBid(room, ids[0], 40, false, now + 100);
   room = submitSealedBid(room, ids[1], 25, false, now + 200);
   const hidden = toClient(room, { now: now + 300 });
@@ -74,7 +77,7 @@ test("sealed unique high reveals and opens; winner is deducted into storage", ()
 test("cannot bid above balance; pass cannot raise in open", () => {
   const now = 6_000_000;
   let { room, ids } = roomWithPlayers(2, now);
-  room = startEvening(room, now);
+  room = startCountdown(startEvening(room, now), now);
   assert.throws(() => submitSealedBid(room, ids[0], 101, false, now + 10), /balance/);
   room = submitSealedBid(room, ids[0], 10, false, now + 20);
   room = submitSealedBid(room, ids[1], 0, true, now + 30);
@@ -88,7 +91,7 @@ test("cannot bid above balance; pass cannot raise in open", () => {
 test("ties: only tied players re-bid higher until unique high", () => {
   const now = 7_000_000;
   let { room, ids } = roomWithPlayers(3, now);
-  room = startEvening(room, now);
+  room = startCountdown(startEvening(room, now), now);
   room = submitSealedBid(room, ids[0], 50, false, now + 10);
   room = submitSealedBid(room, ids[1], 50, false, now + 20);
   room = submitSealedBid(room, ids[2], 10, false, now + 30);
@@ -105,10 +108,48 @@ test("ties: only tied players re-bid higher until unique high", () => {
   assert.equal(room.currentHigh?.amount, 70);
 });
 
+test("a tie with no higher bid goes to the earliest sealed bid", () => {
+  const now = 7_500_000;
+  let { room, ids } = roomWithPlayers(3, now);
+  room = startCountdown(startEvening(room, now), now);
+  room = submitSealedBid(room, ids[1], 40, false, now + 10);
+  room = submitSealedBid(room, ids[0], 40, false, now + 20);
+  room = submitSealedBid(room, ids[2], 15, false, now + 30);
+  room = tick(room, now + 20_000);
+  assert.equal(room.phase, "tiebreak");
+  assert.deepEqual(room.tiedIds, [ids[1], ids[0]]);
+  room = tick(room, now + 20_000 + 15_000);
+  assert.equal(room.phase, "awarded");
+  assert.equal(room.lastAward?.sold, true);
+  assert.equal(room.lastAward?.playerId, ids[1]);
+  assert.equal(room.lastAward?.amount, 40);
+  const winner = room.players.find((p) => p.id === ids[1]);
+  assert.equal(winner?.balance, 60);
+  assert.equal(winner?.storage[0]?.itemName, "Gilded compass");
+});
+
+test("a higher tie still goes to whoever submitted that bid first", () => {
+  const now = 7_600_000;
+  let { room, ids } = roomWithPlayers(2, now);
+  room = startCountdown(startEvening(room, now), now);
+  room = submitSealedBid(room, ids[0], 50, false, now + 10);
+  room = submitSealedBid(room, ids[1], 50, false, now + 20);
+  room = tick(room, now + 20_000);
+  room = submitSealedBid(room, ids[1], 60, false, now + 20_100);
+  room = submitSealedBid(room, ids[0], 60, false, now + 20_200);
+  room = tick(room, now + 20_000 + 15_000);
+  assert.equal(room.phase, "tiebreak");
+  assert.deepEqual(room.tiedIds, [ids[1], ids[0]]);
+  room = tick(room, now + 20_000 + 30_000);
+  assert.equal(room.phase, "awarded");
+  assert.equal(room.lastAward?.playerId, ids[1]);
+  assert.equal(room.lastAward?.amount, 60);
+});
+
 test("host can break a tie; first valid open raise wins the raise", () => {
   const now = 8_000_000;
   let { room, ids } = roomWithPlayers(2, now);
-  room = startEvening(room, now);
+  room = startCountdown(startEvening(room, now), now);
   room = submitSealedBid(room, ids[0], 30, false, now + 10);
   room = submitSealedBid(room, ids[1], 30, false, now + 20);
   room = tick(room, now + 20_000);
@@ -119,6 +160,53 @@ test("host can break a tie; first valid open raise wins the raise", () => {
   room = raiseBid(room, ids[1], 31, now + 20_600);
   assert.equal(room.currentHigh?.playerId, ids[1]);
   assert.throws(() => raiseBid(room, ids[0], 31, now + 20_700), /higher than 31/);
+});
+
+test("the host starts the countdown separately", () => {
+  const now = 1_700_000_000_000;
+  let room = createRoom(now);
+  room.code = "TEST";
+  room = addItem(room, "Vase");
+  const joined = joinPlayer(room, "Ada", "data:image/jpeg;base64,aaa", now);
+  room = joined.room;
+  room = startEvening(room, now);
+  assert.equal(room.phase, "sealed");
+  assert.equal(room.sealedEndsAt, null);
+  assert.throws(() => submitSealedBid(room, joined.player.id, 40, false, now), /countdown/);
+  room = startCountdown(room, now);
+  assert.equal(room.sealedEndsAt, now + 20_000);
+  assert.throws(() => startCountdown(room, now + 1_000), /already running/);
+});
+
+test("a player can replace their photo until the evening starts", () => {
+  const now = 1_700_000_000_000;
+  let room = createRoom(now);
+  const joined = joinPlayer(room, "Ada", "data:image/jpeg;base64,aaa", now);
+  room = joined.room;
+  const next = "data:image/jpeg;base64,bbb";
+  room = replaceSelfie(room, joined.player.token, next);
+  assert.equal(room.players[0]?.selfieDataUrl, next);
+  assert.equal(room.players[0]?.photoVersion, 2);
+  room = addItem(room, "Vase");
+  room = startEvening(room, now);
+  assert.throws(() => replaceSelfie(room, joined.player.token, "data:image/jpeg;base64,aaa"), /locked/);
+});
+
+test("one starting-money save is the room the clients keep", () => {
+  const now = 1_700_000_000_000;
+  const room = createRoom(now);
+  const saved = setStartingMoney(room, 800);
+  saved.version = room.version + 1;
+  const stale = { ...toClient(room, { now }), serverNow: now + 50 };
+  const fresh = { ...toClient(saved, { now }), serverNow: now + 20 };
+  assert.equal(preferRoom(fresh, stale).startingMoney, 800);
+  assert.equal(preferRoom(stale, fresh).startingMoney, 800);
+  const clock = { ...fresh, serverNow: now + 80 };
+  assert.equal(preferRoom(fresh, clock).serverNow, now + 80);
+  const withLot = addItem(saved, "smile");
+  withLot.version = saved.version + 1;
+  assert.equal(preferRoom(toClient(withLot, { now }), toClient(saved, { now })).items.some((item) => item.name === "smile"), true);
+  assert.equal(preferRoom(toClient(saved, { now }), toClient(withLot, { now })).items.some((item) => item.name === "smile"), true);
 });
 
 test("the third lot can be smile, and traditional chinese names round-trip as JSON", () => {
@@ -143,14 +231,16 @@ test("the third lot can be smile, and traditional chinese names round-trip as JS
 test("next lot starts a fresh sealed window; unsold if nobody bids", () => {
   const now = 9_000_000;
   let { room, ids } = roomWithPlayers(1, now);
-  room = startEvening(room, now);
+  room = startCountdown(startEvening(room, now), now);
   room = submitSealedBid(room, ids[0], 0, true, now + 10);
   room = tick(room, now + 20_000);
   assert.equal(room.phase, "awarded");
   assert.equal(room.lastAward?.sold, false);
   room = startNextLot(room, now + 21_000);
   assert.equal(room.phase, "sealed");
+  assert.equal(room.sealedEndsAt, null);
   assert.equal(room.currentItemIndex, 1);
+  room = startCountdown(room, now + 21_000);
   room = submitSealedBid(room, ids[0], 8, false, now + 21_100);
   room = tick(room, now + 21_000 + 20_000);
   room = awardWinner(room, now + 42_000);
