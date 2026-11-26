@@ -2,9 +2,11 @@ import { randomBytes, randomInt } from "node:crypto";
 
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
+export const ROOM_CODE_LENGTH = 22;
+
 export function roomCode(): string {
   let out = "";
-  for (let i = 0; i < 4; i++) out += ALPHABET[randomInt(ALPHABET.length)];
+  for (let i = 0; i < ROOM_CODE_LENGTH; i++) out += ALPHABET[randomInt(ALPHABET.length)];
   return out;
 }
 

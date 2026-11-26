@@ -43,7 +43,13 @@ export function Face({
     >
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt={name} className="h-full w-full object-cover" />
+        <img
+          src={src}
+          alt=""
+          draggable={false}
+          onContextMenu={(event) => event.preventDefault()}
+          className="pointer-events-none h-full w-full select-none object-cover"
+        />
       ) : (
         <div className="flex h-full w-full items-center justify-center font-display text-gold">
           {name.slice(0, 1).toUpperCase()}

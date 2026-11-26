@@ -6,6 +6,7 @@ import {
   breakTie,
   createRoom,
   joinPlayer,
+  MAX_PLAYERS,
   raiseBid,
   setStartingMoney,
   startEvening,
@@ -14,6 +15,7 @@ import {
   tick,
   toClient,
 } from "./game";
+import { ROOM_CODE_LENGTH } from "./ids";
 import type { Room } from "./types";
 
 function roomWithPlayers(n: number, now = 1_000_000): { room: Room; tokens: string[]; ids: string[] } {
@@ -33,6 +35,18 @@ function roomWithPlayers(n: number, now = 1_000_000): { room: Room; tokens: stri
   }
   return { room, tokens, ids };
 }
+
+test("new rooms use a long QR secret and stop at 40 participants", () => {
+  const now = 4_000_000;
+  let room = createRoom(now);
+  assert.equal(room.code.length, ROOM_CODE_LENGTH);
+  const selfie = "data:image/jpeg;base64,aaa";
+  for (let i = 0; i < MAX_PLAYERS; i++) {
+    room = joinPlayer(room, `P${i + 1}`, selfie, now).room;
+  }
+  assert.equal(room.players.length, 40);
+  assert.throws(() => joinPlayer(room, "P41", selfie, now), /40 participants/);
+});
 
 test("sealed unique high reveals and opens; winner is deducted into storage", () => {
   const now = 5_000_000;
