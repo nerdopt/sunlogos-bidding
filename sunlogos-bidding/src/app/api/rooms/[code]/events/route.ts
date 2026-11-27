@@ -17,8 +17,9 @@ export async function GET(request: Request, ctx: Ctx) {
     const playerToken = header(request, "x-player-token");
     release = acquireLiveSlot(code);
     const encoder = new TextEncoder();
-    let last = "";
-    let closed = false;
+        let last = "";
+        let sending = false;
+        let closed = false;
     let released = false;
     const done = () => {
       if (released) return;
@@ -29,7 +30,8 @@ export async function GET(request: Request, ctx: Ctx) {
     const stream = new ReadableStream({
       start(controller) {
         const send = async () => {
-          if (closed) return;
+          if (closed || sending) return;
+          sending = true;
           try {
             const room = await loadAndTick(code);
             const view = toClient(room, { hostToken, playerToken });
@@ -44,6 +46,8 @@ export async function GET(request: Request, ctx: Ctx) {
           } catch (error) {
             const message = error instanceof Error ? error.message : "error";
             controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ error: message })}\n\n`));
+          } finally {
+            sending = false;
           }
         };
         void send();

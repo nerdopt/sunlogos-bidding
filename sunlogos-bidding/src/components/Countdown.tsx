@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { forwardRemaining } from "@/lib/live";
 
 export function Countdown({
   endsAt,
@@ -12,6 +13,7 @@ export function Countdown({
   size?: "display" | "compact";
 }) {
   const origin = useRef({ local: Date.now(), server: serverNow });
+  const shown = useRef<{ endsAt: number; remaining: number } | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -25,7 +27,9 @@ export function Countdown({
 
   if (!endsAt) return null;
   const elapsed = now - origin.current.local;
-  const remaining = Math.max(0, endsAt - origin.current.server - elapsed);
+  const estimate = endsAt - origin.current.server - elapsed;
+  const remaining = forwardRemaining(shown.current?.endsAt === endsAt ? shown.current.remaining : null, estimate);
+  shown.current = { endsAt, remaining };
   const seconds = Math.ceil(remaining / 1000);
   const urgent = seconds <= 5;
   const cls = size === "compact" ? "font-display text-6xl leading-none tracking-tight" : "countdown";

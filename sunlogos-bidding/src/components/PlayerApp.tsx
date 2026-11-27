@@ -197,7 +197,13 @@ export function PlayerApp({ code }: { code: string }) {
         </div>
       )}
 
-      {(you.canBid || you.canRaise) && (
+      {you.balance <= 0 &&
+        room.sessionStarted &&
+        (room.phase === "sealed" || room.phase === "tiebreak" || room.phase === "open") && (
+          <p className="mt-8 text-center font-display text-3xl text-cream/80">You have ran out of money</p>
+        )}
+
+      {(you.canBid || you.canRaise) && you.balance > 0 && (
         <form
           className="mt-5 space-y-3"
           onSubmit={(e) => {
@@ -242,10 +248,10 @@ export function PlayerApp({ code }: { code: string }) {
             )}
           </div>
           {bidError && <p className="text-sm text-ember">{bidError}</p>}
-          {you.canBid && (
+          {you.canBid && !you.passed && (
             <div className="flex gap-2">
               <button type="submit" className="btn-gold flex-1 py-3" disabled={sending}>
-                {you.submitted && !you.passed ? "Update bid" : "Submit bid"}
+                {you.submitted ? "Update bid" : "Submit bid"}
               </button>
               {you.canPass && (
                 <button type="button" className="btn-ghost" disabled={sending} onClick={() => void bid({ pass: true })}>

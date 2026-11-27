@@ -6,6 +6,7 @@ import { Countdown } from "@/components/Countdown";
 import { useLiveRoom } from "@/hooks/useLiveRoom";
 import { useSelfies } from "@/hooks/useSelfies";
 import { fetchRoom, hostAction, money, phaseLabel, readHostToken, unreadableResponse } from "@/lib/client";
+import { actionLanded } from "@/lib/live";
 import { textLang } from "@/lib/text";
 import type { ClientRoom } from "@/lib/types";
 
@@ -61,31 +62,42 @@ export function HostApp({ code }: { code: string }) {
   const selfies = useSelfies(upper, selfieRefs, hostToken);
 
   async function act(action: Record<string, unknown>): Promise<boolean> {
-    if (!hostToken) return false;
-    const beforeLots = room?.items.length ?? 0;
+    if (!hostToken || !room) return false;
+    const before = room;
     setBusy(action.type as string);
     setFlash(null);
+    const recover = async () => {
+      try {
+        const fresh = await fetchRoom(upper, { hostToken });
+        if (!actionLanded(before, fresh, action)) return false;
+        setRoom(fresh);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const retryable = (error: unknown) => {
+      if (unreadableResponse(error)) return true;
+      const message = error instanceof Error ? error.message : "";
+      return message === "Room is busy — try again" || message === "Something went wrong";
+    };
     try {
-      const next = await hostAction(upper, hostToken, action);
-      setRoom(next);
+      setRoom(await hostAction(upper, hostToken, action));
       return true;
     } catch (err) {
-      if (unreadableResponse(err)) {
-        try {
-          const fresh = await fetchRoom(upper, { hostToken });
-          setRoom(fresh);
-          if (action.type === "addItem" && fresh.items.length <= beforeLots) {
-            setFlash("Couldn't save that lot. Try again.");
-            return false;
-          }
-          return true;
-        } catch {
-          setFlash("Couldn't save that. Try again.");
-          return false;
-        }
+      if (await recover()) return true;
+      if (!retryable(err)) {
+        setFlash(err instanceof Error ? err.message : "Failed");
+        return false;
       }
-      setFlash(err instanceof Error ? err.message : "Failed");
-      return false;
+      try {
+        setRoom(await hostAction(upper, hostToken, action));
+        return true;
+      } catch (err2) {
+        if (await recover()) return true;
+        setFlash(err2 instanceof Error ? err2.message : "Couldn't save that. Try again.");
+        return false;
+      }
     } finally {
       setBusy(null);
     }

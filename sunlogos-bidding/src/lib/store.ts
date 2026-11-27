@@ -64,19 +64,76 @@ async function loadRoomLight(code: string): Promise<Room | null> {
   return parseState(rows[0]);
 }
 
+/** Photos live beside the room so a host save does not rewrite every selfie. */
+async function storeSelfies(room: Room): Promise<void> {
+  for (const player of room.players) {
+    if (!player.selfieDataUrl) continue;
+    await sql(
+      `insert into room_selfies (code, player_id, data) values ($1, $2, $3)
+       on conflict (code, player_id) do update set data = excluded.data`,
+      [room.code, player.id, player.selfieDataUrl],
+    );
+  }
+  const ids = room.players.map((player) => player.id);
+  if (ids.length === 0) {
+    await sql("delete from room_selfies where code = $1", [room.code]);
+    return;
+  }
+  const placeholders = ids.map((_, index) => `$${index + 2}`).join(", ");
+  await sql(`delete from room_selfies where code = $1 and player_id not in (${placeholders})`, [room.code, ...ids]);
+}
+
+function stateWithoutSelfies(room: Room): Room {
+  return {
+    ...room,
+    players: room.players.map((player) => ({ ...player, selfieDataUrl: "" })),
+  };
+}
+
 async function saveIfVersion(room: Room, expectedVersion: number): Promise<boolean> {
+  await storeSelfies(room);
   const rows = await sql<{ code: string }>(
     `update rooms
      set version = $1, state = $2::jsonb, host_token = $3, updated_at = now()
      where code = $4 and version = $5
      returning code`,
-    [room.version, JSON.stringify(room), room.hostToken, room.code, expectedVersion],
+    [room.version, JSON.stringify(stateWithoutSelfies(room)), room.hostToken, room.code, expectedVersion],
   );
   return rows.length > 0;
 }
 
+export async function readSelfie(code: string, playerId: string, embedded: string | null): Promise<string | null> {
+  if (embedded) return embedded;
+  const rows = await sql<{ data: string }>("select data from room_selfies where code = $1 and player_id = $2", [
+    code.toUpperCase(),
+    playerId,
+  ]);
+  return rows[0]?.data ?? null;
+}
+
+const roomQueue = new Map<string, Promise<unknown>>();
+
+function enqueueRoom<T>(code: string, fn: () => Promise<T>): Promise<T> {
+  const key = code.toUpperCase();
+  const prev = roomQueue.get(key) ?? Promise.resolve();
+  const run = prev.then(fn, fn);
+  const settled = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  roomQueue.set(key, settled);
+  void settled.finally(() => {
+    if (roomQueue.get(key) === settled) roomQueue.delete(key);
+  });
+  return run;
+}
+
 export async function mutateRoom(code: string, fn: (room: Room) => Room, now = Date.now()): Promise<Room> {
   const key = code.toUpperCase();
+  return enqueueRoom(key, () => writeRoom(key, fn, now));
+}
+
+async function writeRoom(key: string, fn: (room: Room) => Room, now: number): Promise<Room> {
   for (let i = 0; i < 6; i++) {
     const current = await loadRoom(key);
     if (!current) throw new GameError("Room not found", 404);

@@ -18,7 +18,7 @@ import {
   toClient,
 } from "./game";
 import { ROOM_CODE_LENGTH } from "./ids";
-import { preferRoom } from "./live";
+import { actionLanded, forwardRemaining, preferRoom } from "./live";
 import type { Room } from "./types";
 
 function roomWithPlayers(n: number, now = 1_000_000): { room: Room; tokens: string[]; ids: string[] } {
@@ -247,4 +247,38 @@ test("next lot starts a fresh sealed window; unsold if nobody bids", () => {
   assert.equal(room.players[0]?.storage[0]?.itemName, "Silent bell");
   room = startNextLot(room, now + 43_000);
   assert.equal(room.phase, "ended");
+});
+
+test("a late clock sample cannot step the countdown backward", () => {
+  assert.equal(forwardRemaining(null, 17_200), 17_200);
+  assert.equal(forwardRemaining(16_200, 17_100), 16_200);
+  assert.equal(forwardRemaining(16_200, 15_000), 15_000);
+  assert.equal(forwardRemaining(100, -20), 0);
+});
+
+test("a lost host reply still counts once the room shows the save", () => {
+  const now = 1_800_000_000_000;
+  const beforeRoom = createRoom(now);
+  const before = toClient(beforeRoom, { now });
+  let withLots = beforeRoom;
+  for (let index = 1; index <= 9; index++) withLots = addItem(withLots, `Lot ${index}`);
+  withLots.version = beforeRoom.version + 1;
+  const afterLots = toClient(withLots, { now });
+  assert.equal(actionLanded(before, afterLots, { type: "addItem", name: "Lot 9" }), true);
+  assert.equal(actionLanded(before, before, { type: "addItem", name: "Lot 9" }), false);
+
+  let played = roomWithPlayers(1, now).room;
+  played = addItem(played, "Second");
+  played = startCountdown(startEvening(played, now), now);
+  played = submitSealedBid(played, played.players[0]!.id, 10, false, now + 10);
+  played = tick(played, now + 20_000);
+  const open = toClient(played, { now: now + 20_000 });
+  const awarded = toClient(awardWinner(played, now + 21_000), { now: now + 21_000 });
+  assert.equal(actionLanded(open, awarded, { type: "awardWinner" }), true);
+  const next = toClient(startNextLot(awardWinner(played, now + 21_000), now + 22_000), { now: now + 22_000 });
+  assert.equal(actionLanded(awarded, next, { type: "startNextLot" }), true);
+  assert.equal(next.sealedEndsAt, null);
+  const counting = { ...next, sealedEndsAt: now + 42_000 };
+  assert.equal(actionLanded(next, counting, { type: "startCountdown" }), true);
+  assert.equal(actionLanded(counting, counting, { type: "startCountdown" }), false);
 });
