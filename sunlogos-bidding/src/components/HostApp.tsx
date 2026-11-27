@@ -332,31 +332,38 @@ function AwardStage({ room, selfies }: { room: ClientRoom; selfies: Record<strin
 }
 
 function EndedStage({ room, selfies }: { room: ClientRoom; selfies: Record<string, string> }) {
-  const ranked = [...room.players].sort((a, b) => a.balance - b.balance);
+  const winnerByItem = new Map<string, { playerId: string; nickname: string; amount: number }>();
+  for (const player of room.players) {
+    for (const won of player.storage) {
+      winnerByItem.set(won.itemId, { playerId: player.id, nickname: player.nickname, amount: won.amount });
+    }
+  }
   return (
     <div>
       <p className="text-center text-[12px] uppercase tracking-[0.5em] text-gold">The books are closed</p>
       <h2 className="mt-3 text-center text-6xl">This evening</h2>
-      <ul className="mx-auto mt-10 max-w-2xl space-y-4">
-        {ranked.map((p) => (
-          <li key={p.id} className="panel flex items-center gap-4">
-            <Face src={selfies[p.id]} name={p.nickname} size="sm" />
-            <div className="flex-1">
-              <p className="font-display text-2xl">{p.nickname}</p>
-              <p className="text-sm text-cream/50">
-                {p.storage.length
-                  ? p.storage.map((s, storageIndex) => (
-                      <span key={s.itemId}>
-                        {storageIndex > 0 ? " · " : ""}
-                        <span lang={textLang(s.itemName)}>{s.itemName}</span> ({money(s.amount)})
-                      </span>
-                    ))
-                  : "No lots"}
-              </p>
-            </div>
-            <p className="font-display text-2xl text-gold">{money(p.balance)}</p>
-          </li>
-        ))}
+      <ul className="mx-auto mt-10 max-w-3xl space-y-4">
+        {room.items.map((item) => {
+          const winner = winnerByItem.get(item.id);
+          return (
+            <li key={item.id} className="panel flex items-center gap-4">
+              <div className="min-w-0 flex-1">
+                <p className="font-display text-3xl" lang={textLang(item.name)}>
+                  {item.name}
+                </p>
+                {winner ? <p className="text-gold">{money(winner.amount)}</p> : null}
+              </div>
+              {winner ? (
+                <div className="flex items-center gap-3">
+                  <p className="font-display text-2xl">{winner.nickname}</p>
+                  <Face src={selfies[winner.playerId]} name={winner.nickname} size="sm" />
+                </div>
+              ) : (
+                <p className="text-cream/45">Unsold</p>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

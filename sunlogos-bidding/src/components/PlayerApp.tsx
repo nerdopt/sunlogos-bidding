@@ -161,7 +161,19 @@ export function PlayerApp({ code }: { code: string }) {
       )}
 
       {room.phase === "ended" && (
-        <p className="mt-10 text-center font-display text-3xl">The evening is closed.</p>
+        <div className="mt-8">
+          <p className="text-center font-display text-3xl">The evening is closed.</p>
+          <ul className="mt-6 space-y-3">
+            {you.storage.length === 0 && <li className="text-center text-cream/50">Nothing won.</li>}
+            {you.storage.map((row) => (
+              <li key={row.itemId} className="flex justify-between gap-4 border-b border-cream/10 pb-2">
+                <span lang={textLang(row.itemName)}>{row.itemName}</span>
+                <span className="text-gold">{money(row.amount)}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-6 text-center font-display text-3xl text-gold">{money(you.balance)} remaining</p>
+        </div>
       )}
 
       {room.phase === "open" && room.currentHigh && (
@@ -280,9 +292,11 @@ export function PlayerApp({ code }: { code: string }) {
         </p>
       )}
 
-      <button type="button" className="btn-ghost mt-10 w-full" onClick={() => setStorageOpen(true)}>
-        My storage · {you.storage.length} lots · spent {money(spent)}
-      </button>
+      {room.phase !== "ended" && (
+        <button type="button" className="btn-ghost mt-10 w-full" onClick={() => setStorageOpen(true)}>
+          My storage · {you.storage.length} lots · spent {money(spent)}
+        </button>
+      )}
 
       {storageOpen && (
         <div className="fixed inset-0 z-20 bg-black/70 p-4 backdrop-blur-sm" onClick={() => setStorageOpen(false)}>
