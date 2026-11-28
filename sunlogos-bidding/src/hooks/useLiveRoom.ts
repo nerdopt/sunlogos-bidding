@@ -33,8 +33,14 @@ export function useLiveRoom(
     if (tokens.playerToken) headers["x-player-token"] = tokens.playerToken;
 
     void refresh();
+    let sseAt = 0;
+    let pollTick = 0;
     const poll = setInterval(() => {
-      if (!cancelled) void refresh();
+      if (cancelled) return;
+      pollTick += 1;
+      const sseFresh = Date.now() - sseAt < 2_000;
+      if (sseFresh && pollTick % 8 !== 0) return;
+      void refresh();
     }, 400);
 
     const abort = new AbortController();
@@ -64,7 +70,10 @@ export function useLiveRoom(
               if (!line) continue;
               try {
                 const data = JSON.parse(line.slice(6).replace(/^\uFEFF/, "")) as ClientRoom;
-                if (data?.code && !cancelled) setRoom(data);
+                if (data?.code && typeof data.version === "number" && !cancelled) {
+                  sseAt = Date.now();
+                  setRoom(data);
+                }
               } catch {
                 /* ignore a partial frame */
               }

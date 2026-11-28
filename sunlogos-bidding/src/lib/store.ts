@@ -143,9 +143,39 @@ async function writeRoom(key: string, fn: (room: Room) => Room, now: number): Pr
     next.version = expected + 1;
     next.code = key;
     const ok = await saveIfVersion(next, expected);
-    if (ok) return next;
+    if (ok) {
+      try {
+        rememberLive(next);
+      } catch {
+        /* the row is already saved */
+      }
+      return next;
+    }
   }
   throw new GameError("Room is busy — try again", 409);
+}
+
+const LIVE_MS = 300;
+
+type LiveSnap = { room: Room; version: number; expires: number };
+
+const liveSnaps = new Map<string, LiveSnap>();
+const liveInflight = new Map<string, Promise<Room>>();
+
+function rememberLive(room: Room, now = Date.now()) {
+  const light = JSON.parse(JSON.stringify(stateWithoutSelfies(room))) as Room;
+  const key = light.code.toUpperCase();
+  const prev = liveSnaps.get(key);
+  if (prev && prev.version > light.version) return;
+  liveSnaps.set(key, { room: light, version: light.version, expires: now + LIVE_MS });
+}
+
+function timerDue(room: Room, now: number) {
+  return (
+    (room.phase === "sealed" || room.phase === "tiebreak") &&
+    room.sealedEndsAt !== null &&
+    now >= room.sealedEndsAt
+  );
 }
 
 function playFingerprint(room: Room): string {
@@ -153,13 +183,32 @@ function playFingerprint(room: Room): string {
   return JSON.stringify(copy);
 }
 
-export async function loadAndTick(code: string, now = Date.now()): Promise<Room> {
-  const key = code.toUpperCase();
+async function refreshLive(key: string, now: number): Promise<Room> {
   const current = await loadRoomLight(key);
   if (!current) throw new GameError("Room not found", 404);
   const ticked = tick(current, now);
-  if (playFingerprint(current) === playFingerprint(ticked)) return ticked;
-  return mutateRoom(key, (room) => room, now);
+  let room = ticked;
+  if (playFingerprint(current) !== playFingerprint(ticked)) {
+    room = await mutateRoom(key, (loaded) => loaded, now);
+  }
+  const newest = liveSnaps.get(key);
+  if (newest && newest.version > room.version) return newest.room;
+  rememberLive(room, now);
+  return room;
+}
+
+/** One shared read per room, so forty phones do not each take a database connection. */
+export async function loadAndTick(code: string, now = Date.now()): Promise<Room> {
+  const key = code.toUpperCase();
+  const cached = liveSnaps.get(key);
+  if (cached && cached.expires > now && !timerDue(cached.room, now)) return cached.room;
+  const pending = liveInflight.get(key);
+  if (pending) return pending;
+  const run = refreshLive(key, now).finally(() => {
+    if (liveInflight.get(key) === run) liveInflight.delete(key);
+  });
+  liveInflight.set(key, run);
+  return run;
 }
 
 export async function pruneOldRooms(): Promise<void> {

@@ -1,6 +1,7 @@
 import { mkdir, readdir, readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 import pg from "pg";
+import { GameError } from "./types";
 
 const databaseUrl = postgresUrl(process.env.DATABASE_URL?.trim() ?? "");
 
@@ -22,7 +23,14 @@ export async function sql<T = Record<string, unknown>>(
 ): Promise<T[]> {
   if (databaseUrl !== "") {
     if (!g.__sunlogosPool) {
-      const pool = new pg.Pool({ connectionString: databaseUrl, max: 5 });
+      const pool = new pg.Pool({
+        connectionString: databaseUrl,
+        max: 5,
+        // Fail the request with JSON instead of waiting until the host replaces it with an HTML page.
+        connectionTimeoutMillis: 2000,
+        query_timeout: 4000,
+        statement_timeout: 4000,
+      });
       // An idle client error with no listener crashes the process. The host then
       // sees an HTML error page, and Firefox reports that as a JSON.parse failure.
       pool.on("error", (error: unknown) => {
@@ -30,7 +38,15 @@ export async function sql<T = Record<string, unknown>>(
       });
       g.__sunlogosPool = pool;
     }
-    return (await g.__sunlogosPool.query(text, params)).rows as T[];
+    try {
+      return (await g.__sunlogosPool.query(text, params)).rows as T[];
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (/timeout/i.test(message) || /too many clients/i.test(message) || /connection slots/i.test(message)) {
+        throw new GameError("Room is busy — try again", 503);
+      }
+      throw error;
+    }
   }
   g.__sunlogosPglite ??= startLocal().catch((error: unknown) => {
     g.__sunlogosPglite = undefined;

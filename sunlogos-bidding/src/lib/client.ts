@@ -137,6 +137,12 @@ async function postBid(
   return asRoom(data);
 }
 
+function retryableReply(error: unknown): boolean {
+  if (unreadableResponse(error)) return true;
+  const message = error instanceof Error ? error.message : "";
+  return message === "Room is busy — try again" || message === "Something went wrong";
+}
+
 export async function sendBid(
   code: string,
   playerToken: string,
@@ -145,7 +151,7 @@ export async function sendBid(
   try {
     return await postBid(code, playerToken, body);
   } catch (err) {
-    if (!unreadableResponse(err)) throw err;
+    if (!retryableReply(err)) throw err;
     try {
       const fresh = await fetchRoom(code, { playerToken });
       if (bidLanded(fresh, body)) return fresh;

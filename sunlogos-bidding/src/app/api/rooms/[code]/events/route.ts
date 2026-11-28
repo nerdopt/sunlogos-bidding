@@ -29,6 +29,14 @@ export async function GET(request: Request, ctx: Ctx) {
 
     const stream = new ReadableStream({
       start(controller) {
+        const push = (bytes: Uint8Array) => {
+          if (closed) return;
+          try {
+            controller.enqueue(bytes);
+          } catch {
+            closed = true;
+          }
+        };
         const send = async () => {
           if (closed || sending) return;
           sending = true;
@@ -39,13 +47,13 @@ export async function GET(request: Request, ctx: Ctx) {
             const flush = " ".repeat(2048);
             if (payload !== last) {
               last = payload;
-              controller.enqueue(encoder.encode(`data: ${payload}\n: ${flush}\n\n`));
+              push(encoder.encode(`data: ${payload}\n: ${flush}\n\n`));
             } else {
-              controller.enqueue(encoder.encode(`: ping ${flush}\n\n`));
+              push(encoder.encode(`: ping ${flush}\n\n`));
             }
           } catch (error) {
             const message = error instanceof Error ? error.message : "error";
-            controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ error: message })}\n\n`));
+            push(encoder.encode(`event: error\ndata: ${JSON.stringify({ error: message })}\n\n`));
           } finally {
             sending = false;
           }
